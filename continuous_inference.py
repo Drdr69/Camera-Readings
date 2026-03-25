@@ -29,16 +29,50 @@ def load_config(config_path="calibration_config.json"):
 
 def upload_data(image, measurement_data):
     """
-    This is a "placeholder" function. Right now, it doesn't do anything (pass).
-    
-    In the future, when you know exactly WHERE you want to send your images 
-    (like an Amazon AWS server, a custom website, or a database), you will 
-    write the code here to send it. 
+    Simulates uploading the processed image and measurement data.
+    Saves the image with drawn bounding boxes and the measured dimensions
+    (height and width in millimeters) to an 'uploaded_results' directory.
     
     The 'image' is the picture with the boxes drawn on it.
     The 'measurement_data' is a dictionary containing the width/height numbers.
     """
-    pass
+    output_dir = "uploaded_results"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Generate a unique timestamp for filenames
+    timestamp = int(time.time() * 1000)
+    image_filename = os.path.join(output_dir, f"result_{timestamp}.jpg")
+    json_filename = os.path.join(output_dir, f"data_{timestamp}.json")
+
+    # 1. Save the processed image to disk
+    cv2.imwrite(image_filename, image)
+
+    # 2. Save the measurement data as JSON
+    with open(json_filename, "w") as f:
+        json.dump(measurement_data, f, indent=4)
+
+    print(f"Uploaded! Saved image to {image_filename} and data to {json_filename}")
+
+    # --- EXAMPLE OF REAL UPLOAD VIA HTTP POST (COMMENTED OUT) ---
+    # import requests
+    #
+    # url = "https://your-api-endpoint.com/upload"
+    # payload = {'data': json.dumps(measurement_data)}
+    # files = [
+    #   ('image', ('image.jpg', open(image_filename, 'rb'), 'image/jpeg'))
+    # ]
+    # headers = {'Authorization': 'Bearer YOUR_TOKEN'}
+    #
+    # try:
+    #     response = requests.post(url, headers=headers, data=payload, files=files)
+    #     if response.status_code == 200:
+    #         print("Successfully uploaded to remote server!")
+    #     else:
+    #         print(f"Failed to upload. Status code: {response.status_code}")
+    # except Exception as e:
+    #     print(f"Error uploading to server: {e}")
+    # -------------------------------------------------------------
 
 
 # ==============================================================================
@@ -73,6 +107,9 @@ def process_and_upload_frame(frame, model, pixels_per_mm):
         # Extract the "masks" (the pixel-perfect colorful blobs the AI drew over the objects)
         masks_data = results[0].masks.data.cpu().numpy() if results[0].masks is not None else []
         
+        if len(masks_data) == 0:
+            print("Notice: Objects detected, but no segmentation masks were generated.")
+
         # Loop through every single object the AI found in the picture
         for idx, mask in enumerate(masks_data):
             # The AI might have squished the mask, so we stretch it back to the picture's original size
@@ -89,7 +126,11 @@ def process_and_upload_frame(frame, model, pixels_per_mm):
             # Get the biggest outline (to ignore tiny specks of noise)
             largest_contour = max(contours, key=cv2.contourArea)
             
-            # Draw an invisible tilted rectangle tightly around the outline to get the width and height
+            # --- DIMENSION EXTRACTION EXPLANATION ---
+            # cv2.minAreaRect generates the smallest enclosing rotated rectangle.
+            # This handles irregular boxes at an angle, preventing a standard
+            # axis-aligned bounding box from being excessively large.
+            # It provides: ((center_x, center_y), (width, height), angle)
             rect = cv2.minAreaRect(largest_contour)
             box = cv2.boxPoints(rect)
             box = np.int32(box)
@@ -97,7 +138,10 @@ def process_and_upload_frame(frame, model, pixels_per_mm):
             # Extract the raw width and height in pixels from the rectangle
             pixel_width, pixel_height = rect[1]
             
-            # Convert pixels to actual millimeters (if we have the calibration file)
+            # --- PIXEL TO MILLIMETER CONVERSION ---
+            # Uses the average pixel-to-millimeter ratio from calibration_config.json.
+            # We divide the pixel width/height by the ratio (pixels/mm) to get millimeters.
+            # If `calibrate.py` hasn't been run, `pixels_per_mm` is None, and we fall back to pixels.
             width_val = pixel_width / pixels_per_mm if pixels_per_mm else pixel_width
             height_val = pixel_height / pixels_per_mm if pixels_per_mm else pixel_height
             unit = "mm" if pixels_per_mm else "px"
@@ -134,7 +178,7 @@ def process_and_upload_frame(frame, model, pixels_per_mm):
 # THE INFINITE LOOP
 # ==============================================================================
 
-def continuous_inference(model_path="yolov8n-seg.pt", calibration_path="calibration_config.json", source="0"):
+def continuous_inference(model_path="yolov8x-seg.pt", calibration_path="calibration_config.json", source="0"):
     """
     This is the main function that never stops running.
     It can read from either a webcam, OR a folder on your computer (like a Google Drive folder).
@@ -253,9 +297,9 @@ if __name__ == "__main__":
     # This section sets up the commands you can type when running the script.
     parser = argparse.ArgumentParser(description="Continuous measurement pipeline. Reads from Webcam or a Folder.")
     
-    # --model: Lets you change which AI model file you are using
-    parser.add_argument("--model", type=str, default="yolov8n-seg.pt", 
-                        help="Path to the trained YOLO segmentation model (.pt file)")
+    # --model: Lets you change which AI model file you are using. Default is the most accurate version.
+    parser.add_argument("--model", type=str, default="yolov8x-seg.pt",
+                        help="Path to the trained YOLO segmentation model (.pt file). Default uses max accuracy model.")
     
     # --config: Lets you specify the calibration file
     parser.add_argument("--config", type=str, default="calibration_config.json", 

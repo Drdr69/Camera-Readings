@@ -44,8 +44,13 @@ def measure_box(image_path, model_path, calibration_path="calibration_config.jso
         print("No box detected in the image.")
         return
     
+    # Check if masks exist
+    if results[0].masks is None:
+        print("Objects detected, but no segmentation masks were generated.")
+        return
+
     # We assume the first detected object is our target box
-    # Extract the mask
+    # Extract the mask (the pixel-perfect blob covering the box)
     mask = results[0].masks.data[0].cpu().numpy()
     
     # Resize mask to original image dimensions (since YOLO might resize it during inference)
@@ -64,17 +69,23 @@ def measure_box(image_path, model_path, calibration_path="calibration_config.jso
     # Get the largest contour (assuming it's the main box)
     largest_contour = max(contours, key=cv2.contourArea)
     
-    # Get the bounding box of the contour (handles irregular edges)
-    # Using minAreaRect for a rotated bounding box can be more accurate for irregular shapes
+    # --- DIMENSION EXTRACTION EXPLANATION ---
+    # `cv2.minAreaRect` finds the smallest possible rotated rectangle that completely encloses
+    # the contour (which represents our irregular shape). This is crucial because an irregular
+    # box might not be perfectly axis-aligned with the camera. A standard bounding box
+    # (`cv2.boundingRect`) would be too large if the box is tilted.
+    # The output `rect` contains: (center(x, y), (width, height), angle of rotation)
     rect = cv2.minAreaRect(largest_contour)
     box = cv2.boxPoints(rect)
     box = np.int32(box)
     
-    # The dimensions are rect[1] (width, height)
+    # The dimensions are extracted from rect[1] which holds (width, height) in pixels
     pixel_width, pixel_height = rect[1]
     
-    # Convert to millimeters using our average calibration ratio
-    # because the bounding box might be rotated
+    # --- PIXEL TO MILLIMETER CONVERSION ---
+    # `pixels_per_mm` is a ratio calculated during the calibration step (`calibrate.py`).
+    # By dividing the pixel measurement by this ratio, we convert the units to millimeters.
+    # Example: If width is 600 pixels, and 1 mm = 10 pixels, 600 / 10 = 60 mm.
     width_mm = pixel_width / pixels_per_mm
     height_mm = pixel_height / pixels_per_mm
     
@@ -116,7 +127,7 @@ def measure_box(image_path, model_path, calibration_path="calibration_config.jso
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Measure irregular boxes in millimeters using YOLO segmentation.")
     parser.add_argument("--image", type=str, required=True, help="Path to the image to measure")
-    parser.add_argument("--model", type=str, default="yolov8n-seg.pt", help="Path to the trained YOLO segmentation model (.pt file)")
+    parser.add_argument("--model", type=str, default="yolov8x-seg.pt", help="Path to the trained YOLO segmentation model (.pt file) - Defaults to the most accurate model")
     parser.add_argument("--config", type=str, default="calibration_config.json", help="Path to calibration config JSON")
     
     args = parser.parse_args()

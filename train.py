@@ -7,9 +7,11 @@ def train_model(data_yaml, epochs=100, imgsz=640, batch_size=16):
     Instance segmentation is ideal for irregular shapes as it provides a pixel-perfect mask.
     """
     print(f"Loading pre-trained YOLOv8 segmentation model...")
-    # Load a pre-trained segmentation model. 
-    # 'yolov8n-seg.pt' is fast, but you can change to 'yolov8x-seg.pt' for maximum accuracy if you have a good GPU.
-    model = YOLO('yolov8n-seg.pt')
+    # Load a pre-trained segmentation model.
+    # We use 'yolov8x-seg.pt' (the extra-large version of YOLOv8 segmentation)
+    # to achieve the highest possible accuracy for detecting irregular boxes.
+    # This model has more parameters and thus better captures complex features.
+    model = YOLO('yolov8x-seg.pt')
 
     print(f"Starting training for {epochs} epochs on dataset: {data_yaml}")
     # Train the model
@@ -32,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--data", type=str, required=True, help="Path to the dataset YAML file (e.g., dataset.yaml)")
     parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
     parser.add_argument("--imgsz", type=int, default=640, help="Image size for training")
-    parser.add_argument("--batch", type=int, default=16, help="Batch size")
+    parser.add_argument("--batch", type=int, default=8, help="Batch size (lowered to 8 for yolov8x-seg.pt to avoid OOM)")
     
     args = parser.parse_args()
     
