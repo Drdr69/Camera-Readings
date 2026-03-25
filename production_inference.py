@@ -42,17 +42,15 @@ class ProductionPipeline:
     frame grabbing (I/O) does not block the Deep Learning Inference (GPU),
     and that inference does not block the Measurement/Math operations (CPU).
     """
-    def __init__(self, model_path: str, source: int = 0, z_distance_mm: float = 500.0):
-        self.source = source
+    def __init__(self, model_path: str, source: str = "0", z_distance_mm: float = 500.0):
+        # source can be a string (RTSP stream) or an integer (webcam). We parse it later.
+        self.source = int(source) if source.isdigit() else source
+        self.model_path = model_path
         self.upload_dir = "uploaded_results"
 
         # Ensure upload directory exists
         if not os.path.exists(self.upload_dir):
             os.makedirs(self.upload_dir)
-
-        # Load the optimized model (preferably a .engine file, but handles .pt automatically)
-        print(f"Loading YOLO-Pose model from {model_path}...")
-        self.model = YOLO(model_path)
 
         # Initialize the deterministic measurement and color extraction module
         # with the intrinsic camera calibration logic
@@ -101,15 +99,20 @@ class ProductionPipeline:
         """
         Thread 2: The GPU Worker.
         Takes frames from the queue and runs the YOLO-Pose TensorRT engine.
+        Model instantiation happens inside this thread to prevent CUDA context
+        sharing errors when using optimized TensorRT .engine files.
         """
+        print(f"Thread 2: Loading YOLO-Pose model from {self.model_path}...")
+        model = YOLO(self.model_path)
         print("Thread 2: Inference Engine Started.")
+
         while self.running:
             if not self.frame_queue.empty():
                 frame = self.frame_queue.get()
 
                 # Run inference: verbose=False prevents console spam, stream=False processes immediately
                 t1 = time.time()
-                results = self.model(frame, verbose=False, stream=False)
+                results = model(frame, verbose=False, stream=False)
                 inference_time = (time.time() - t1) * 1000 # milliseconds
 
                 if self.inference_queue.full():
@@ -293,7 +296,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Phase 4: Industrial AOI Production Inference")
     parser.add_argument("--export", type=str, default="", help="If provided, exports the given .pt model to TensorRT (.engine) and exits.")
     parser.add_argument("--model", type=str, default="yolov8n-pose.pt", help="Path to the trained YOLO-Pose model (use .engine for production)")
-    parser.add_argument("--source", type=int, default=0, help="Camera index (e.g., 0 for USB, or industrial GigE interface)")
+    parser.add_argument("--source", type=str, default="0", help="Camera index (e.g., '0' for USB, or RTSP URL for industrial GigE interface)")
     parser.add_argument("--z_distance", type=float, default=500.0, help="Z-axis distance from camera to conveyor belt in mm")
 
     args = parser.parse_args()
