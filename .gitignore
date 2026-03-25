@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+runs/
+weights/
+calibration_config.json
+results/
+.DS_Store
